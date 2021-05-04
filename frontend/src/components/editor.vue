@@ -122,7 +122,6 @@
 
                 <label class="cursor-pointer" v-if="toolbar.indexOf('image') !== -1">
                     <input
-                    :value=imageValue
                     type="file"
                     accept="image/*"
                     class="hidden"
@@ -144,8 +143,8 @@
                     <q-icon name="redo" />
                 </q-btn>
 
-                <q-separator vertical class="q-mx-sm" v-if="diff && value !== diff" />
-                <div v-if="diff && value !== diff">
+                <q-separator vertical class="q-mx-sm" v-if="diff !== undefined && (diff || value) && value !== diff" />
+                <div v-if="diff !== undefined && (diff || value) && value !== diff">
                     <q-btn flat size="sm" dense
                     :class="{'is-active': toggleDiff}"
                     label="toggle diff"
@@ -191,6 +190,7 @@ import CustomImage from './editor-image'
 const Diff = require('diff')
 
 import Utils from '@/services/utils'
+import ImageService from '@/services/image'
 
 export default {
     name: 'BasicEditor',
@@ -214,6 +214,10 @@ export default {
         disableDrop: {
             type: Boolean,
             default: false
+        },
+        noSync: {
+            type: Boolean,
+            default: false
         }
     },
     components: {
@@ -231,7 +235,6 @@ export default {
                     new Heading({ levels: [1, 2, 3, 4, 5, 6] }),
                     new ListItem(),
                     new OrderedList(),
-                    new Link(),
                     new Bold(),
                     new Code(),
                     new Italic(),
@@ -242,19 +245,15 @@ export default {
                     new TrailingNode({node: 'paragraph', notAfter: ['paragraph', 'heading', 'bullet_list', 'ordered_list', 'code_block']})
                 ],
                 onUpdate: ({ getJSON, getHTML }) => {
-                    this.json = getJSON()
-                    this.html = getHTML()
-                    if (Array.isArray(this.json.content) && this.json.content.length === 1 && !this.json.content[0].hasOwnProperty("content")) {
-                        this.html = ""
-                    }
-                    this.$emit('input', this.html)
+                    if (this.noSync)
+                        return
+                    this.updateHTML()
                 },
                 disableInputRules: true,
                 disablePasteRules: true
             }),
             json: '',
             html: '',
-            imageValue: '',
             toggleDiff: true,
 
             htmlEncode: Utils.htmlEncode
@@ -331,13 +330,32 @@ export default {
             var file = files[0];
             var fileReader = new FileReader();
 
+            var auditId = null
+              var path = window.location.pathname.split('/')
+              if (path && path.length > 3 && path[1] === 'audits')
+                auditId = path[2]
+
             fileReader.onloadend = (e) => {
-                var src = fileReader.result
-                this.editor.commands.image({ src })
-                this.imageValue = ''
+                Utils.resizeImg(fileReader.result)
+                .then(data => {
+                    return ImageService.createImage({value: data, name: file.name, auditId: auditId})
+                })
+                .then((data) => {
+                    this.editor.commands.image({src: data.data.datas._id, alt: file.name })
+                })
+                .catch(err => console.log(err))
             }
 
             fileReader.readAsDataURL(file);
+        },
+
+        updateHTML() {
+            this.json = this.editor.getJSON()
+            this.html = this.editor.getHTML()
+            if (Array.isArray(this.json.content) && this.json.content.length === 1 && !this.json.content[0].hasOwnProperty("content")) {
+                this.html = ""
+            }
+            this.$emit('input', this.html)
         }
     }
 }
@@ -385,10 +403,6 @@ export default {
     overflow-wrap: break-word;
     word-wrap: break-word;
     word-break: break-word;
-
-    * {
-      caret-color: currentColor;
-    }
 
     .ProseMirror {
         min-height: 200px;
@@ -451,6 +465,11 @@ export default {
     img {
       max-width: 100%;
       border-radius: 3px;
+    }
+
+    .selected {
+        outline-style: solid;
+        outline-color: $blue-4;
     }
 
     table {

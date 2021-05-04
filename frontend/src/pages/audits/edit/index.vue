@@ -12,12 +12,6 @@
 							</q-btn>
 						</q-item-section>
 					</q-item>
-					<!-- <q-item-label header>
-						Sections -->
-					<!-- <q-space /> -->
-					<!-- <q-btn label="Generate" />
-						
-						</q-item-label> -->
 
 					<q-separator />
 
@@ -58,13 +52,13 @@
 							<q-icon name="fa fa-list"></q-icon>
 						</q-item-section>
 						<q-item-section>Findings ({{audit.findings.length || 0}})</q-item-section>
-						<q-item-section>
+						<q-item-section avatar>
 							<q-btn
 							@click="$router.push('/audits/'+auditId+'/findings/add').catch(err=>{})"
-							label=ADD
-							unelevated
+							icon="add"
+							round
 							dense
-							color="info"
+							color="secondary"
 							/>
 						</q-item-section>
 					</q-item>
@@ -82,14 +76,14 @@
 										class="text-white"
 										size="sm"
 										square
-										:color="getFindingColor(finding.cvssSeverity)"
+										:color="getFindingColor(finding)"
 									>{{(finding.cvssSeverity)?finding.cvssSeverity.substring(0,1):"N"}}</q-chip>
 								</q-item-section>
 								<q-item-section>
 									<span>{{finding.title}}</span>
 								</q-item-section>
 								<q-item-section side v-if="finding.status === 0">
-									<q-icon name="check" color="black" />
+									<q-icon name="check" color="green" />
 								</q-item-section>
 							</q-item>
 							<div class="row">
@@ -100,33 +94,14 @@
 
 					<q-separator class="q-mt-lg" />
 
-					<q-item
-					:to="'/audits/'+auditId+'/summary'"
-					class="q-py-lg"
-					>
-						<q-item-section avatar>
-							<q-icon name="fa fa-chess-king"></q-icon>
-						</q-item-section>
-						<q-item-section>Executive Summary</q-item-section>
-					</q-item>
-
-					<div class="row">
-						<div v-for="(user,idx) in summaryUsers" :key="idx" class="col multi-colors-bar" :style="{background:user.color}" />
-					</div>
-
-					<q-separator />
-
 					<q-item class="q-py-lg">
-						<q-item-section avatar>
-							<q-icon name="fa fa-list"></q-icon>
-						</q-item-section>
 						<q-item-section>Custom Sections</q-item-section>
-						<q-item-section>
+						<q-item-section avatar>
 							<q-btn
-							label=ADD
-							unelevated
+							round
 							dense
-							color="info"
+							icon="add"
+							color="secondary"
 							>
 								<q-menu v-if="sections.length === 0" anchor="top right" self="top left">
 									<q-item v-close-popup>
@@ -134,19 +109,22 @@
 									</q-item>
 								</q-menu>
 								<q-menu v-else anchor="top right" self="top left">
-									<q-item clickable v-close-popup v-for="section of sections" :key="section.field" @click="createSection(section)">
-										<q-item-section>{{section.name}}</q-item-section>
-									</q-item>
+									<q-list separator>
+										<q-item clickable v-close-popup v-for="section of sections" :key="section.field" @click="createSection(section)">
+											<q-item-section>{{section.name}}</q-item-section>
+										</q-item>
+									</q-list>
 								</q-menu>
 							</q-btn>
 						</q-item-section>
 					</q-item>
 					<q-list v-for="section of audit.sections" :key="section._id">
 						<q-item
-						dense
-						class="cursor-pointer"
 						:to="'/audits/'+auditId+'/sections/'+section._id"
 						>
+							<q-item-section avatar>
+								<q-icon :name="getSectionIcon(section)"></q-icon>
+							</q-item-section>
 							<q-item-section>
 								<span>{{section.name}}</span>
 							</q-item-section>
@@ -154,6 +132,7 @@
 						<div class="row">
 							<div v-for="(user,idx) in sectionUsers" :key="idx" v-if="user.section === section._id" class="col multi-colors-bar" :style="{background:user.color}" />
 						</div>
+						<q-separator />
 					</q-list>
 				</q-list>
 			</template>
@@ -222,7 +201,6 @@ export default {
 		computed: {
 			generalUsers: function() {return this.users.filter(user => user.menu === 'general')},
 			networkUsers: function() {return this.users.filter(user => user.menu === 'network')},
-			summaryUsers: function() {return this.users.filter(user => user.menu === 'summary')},
 			findingUsers: function() {return this.users.filter(user => user.menu === 'editFinding')},
 			sectionUsers: function() {return this.users.filter(user => user.menu === 'editSection')},
 
@@ -240,12 +218,18 @@ export default {
 		},
 
 		methods: {
-			getFindingColor: function(cvssSeverity) {
-				if (cvssSeverity) {
-					if (cvssSeverity === "Low") return "green";
-					if (cvssSeverity === "Medium") return "orange";
-					if (cvssSeverity === "High") return "red";
-					if (cvssSeverity === "Critical") return "black";
+			getFindingColor: function(finding) {
+				if (finding.cvssSeverity && finding.cvssSeverity !== "None") {
+					if (finding.cvssSeverity === "Low") return "green"
+					if (finding.cvssSeverity === "Medium") return "orange"
+					if (finding.cvssSeverity === "High") return "red"
+					if (finding.cvssSeverity === "Critical") return "black"
+				}
+				else if (finding.priority) {
+					if (finding.priority === 1) return "green"
+					if (finding.priority === 2) return "orange"
+					if (finding.priority === 3) return "red"
+					if (finding.priority === 4) return "black"
 				}
 				return "light-blue";
 			},
@@ -298,6 +282,13 @@ export default {
 				.catch((err) => {
 					console.log(err);
 				})
+			},
+
+			getSectionIcon: function(section) {
+				var section = this.sections.find(e => e.field === section.field)
+				if (section)
+					return section.icon || 'notes'
+				return 'notes'
 			},
 
 			createSection: function(section) {

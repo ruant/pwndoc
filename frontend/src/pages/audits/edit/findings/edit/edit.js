@@ -3,10 +3,13 @@ import { Notify, Dialog } from 'quasar';
 import BasicEditor from 'components/editor';
 import Breadcrumb from 'components/breadcrumb';
 import CvssCalculator from 'components/cvsscalculator'
+import TextareaArray from 'components/textarea-array'
+import CustomFields from 'components/custom-fields'
 
 import AuditService from '@/services/audit';
 import DataService from '@/services/data';
 import VulnService from '@/services/vulnerability';
+import Utils from '@/services/utils';
 
 export default {
     data: () => {
@@ -14,15 +17,19 @@ export default {
             finding: {},
             findingOrig: {},
             selectedTab: "definition",
+            proofsTabVisited: false,
+            detailsTabVisited: false,
             vulnTypes: [],
-            referencesString: ""
+            customFields: []
         }
     },
 
     components: {
         BasicEditor,
         Breadcrumb,
-        CvssCalculator
+        CvssCalculator,
+        TextareaArray,
+        CustomFields
     },
 
     mounted: function() {
@@ -42,35 +49,34 @@ export default {
     },
 
     beforeRouteLeave (to, from , next) {
-        if (this.$_.isEqualWith(this.finding, this.findingOrig, (value1, value2, key) => {
-            return (key === "cvssv3" || (key === "cvssScore" && parseFloat(value1) == parseFloat(value2))) ? true : undefined
-        }))
-            next();
-        else {
+        Utils.syncEditors(this.$refs)
+        if (this.unsavedChanges()) {
             Dialog.create({
-                title: 'There are unsaved changes !',
-                message: `Do you really want to leave ?`,
-                ok: {label: 'Confirm', color: 'negative'},
-                cancel: {label: 'Cancel', color: 'white'}
+            title: 'There are unsaved changes !',
+            message: `Do you really want to leave ?`,
+            ok: {label: 'Confirm', color: 'negative'},
+            cancel: {label: 'Cancel', color: 'white'}
             })
             .onOk(() => next())
         }
+        else
+            next()
     },
 
     beforeRouteUpdate (to, from , next) {
-        if (this.$_.isEqualWith(this.finding, this.findingOrig, (value1, value2, key) => {
-            return (key === "cvssv3" || (key === "cvssScore" && parseFloat(value1) == parseFloat(value2))) ? true : undefined
-        }))
-            next();
-        else {
+        Utils.syncEditors(this.$refs)
+
+        if (this.unsavedChanges()) {
             Dialog.create({
-                title: 'There are unsaved changes !',
-                message: `Do you really want to leave ?`,
-                ok: {label: 'Confirm', color: 'negative'},
-                cancel: {label: 'Cancel', color: 'white'}
+            title: 'There are unsaved changes !',
+            message: `Do you really want to leave ?`,
+            ok: {label: 'Confirm', color: 'negative'},
+            cancel: {label: 'Cancel', color: 'white'}
             })
             .onOk(() => next())
         }
+        else
+            next()
     },
 
     computed: {
@@ -107,20 +113,26 @@ export default {
 
         // Get Finding
         getFinding: function() {
-            AuditService.getFinding(this.auditId, this.findingId)
+            DataService.getCustomFields()
+            .then((data) => {
+                this.customFields = data.data.datas
+                return AuditService.getFinding(this.auditId, this.findingId)
+            })
             .then((data) => {
                 this.finding = data.data.datas;
                 if (this.finding.paragraphs.length > 0 && !this.finding.poc)
                     this.finding.poc = this.convertParagraphsToHTML(this.finding.paragraphs)
-                
-                this.referencesString = ""
-                if (this.finding.references && this.finding.references.length > 0)
-                    this.referencesString = this.finding.references.join('\n')
-                
-                this.findingOrig = this.$_.cloneDeep(this.finding);                
+
+                this.finding.customFields = Utils.filterCustomFields('finding', this.finding.category, this.customFields, this.finding.customFields)
+                this.$nextTick(() => {
+                    Utils.syncEditors(this.$refs)
+                    this.findingOrig = this.$_.cloneDeep(this.finding); 
+                })
             })
             .catch((err) => {
-                if (err.response.status === 403)
+                if (!err.response)
+                    console.log(err)
+                else if (err.response.status === 403)
                     this.$router.push({name: '403', params: {error: err.response.data.datas}})
                 else if (err.response.status === 404)
                     this.$router.push({name: '404', params: {error: err.response.data.datas}})
@@ -143,23 +155,35 @@ export default {
 
         // Update Finding
         updateFinding: function() {
-            this.finding.references = this.referencesString.split('\n').filter(e => e !== '')
-            AuditService.updateFinding(this.auditId, this.findingId, this.finding)
-            .then(() => {
-                this.findingOrig = this.$_.cloneDeep(this.finding);
-                Notify.create({
-                    message: 'Finding updated successfully',
-                    color: 'positive',
-                    textColor:'white',
-                    position: 'top-right'
+            Utils.syncEditors(this.$refs)
+            this.$nextTick(() => {
+                if (this.$refs.customfields && this.$refs.customfields.requiredFieldsEmpty()) {
+                    Notify.create({
+                        message: 'Please fill all required Fields',
+                        color: 'negative',
+                        textColor:'white',
+                        position: 'top-right'
+                    })
+                    return
+                }
+                
+                AuditService.updateFinding(this.auditId, this.findingId, this.finding)
+                .then(() => {
+                    this.findingOrig = this.$_.cloneDeep(this.finding);
+                    Notify.create({
+                        message: 'Finding updated successfully',
+                        color: 'positive',
+                        textColor:'white',
+                        position: 'top-right'
+                    })
                 })
-            })
-            .catch((err) => {
-                Notify.create({
-                    message: err.response.data.datas,
-                    color: 'negative',
-                    textColor:'white',
-                    position: 'top-right'
+                .catch((err) => {
+                    Notify.create({
+                        message: err.response.data.datas,
+                        color: 'negative',
+                        textColor:'white',
+                        position: 'top-right'
+                    })
                 })
             })
         },
@@ -201,8 +225,8 @@ export default {
         },
 
          // Backup Finding to vulnerability database
-         backupFinding: function() {
-            this.finding.references = this.referencesString.split('\n')
+        backupFinding: function() {
+            Utils.syncEditors(this.$refs)
             VulnService.backupFinding(this.$parent.audit.language, this.finding)
             .then((data) => {
                 Notify.create({
@@ -220,6 +244,57 @@ export default {
                     position: 'top-right'
                 })
             })
+        },
+
+        syncEditors: function() {
+            Utils.syncEditors(this.$refs)
+        },
+
+        updateOrig: function() {
+            if (this.selectedTab === 'proofs' && !this.proofsTabVisited){
+                Utils.syncEditors(this.$refs)
+                this.findingOrig.poc = this.finding.poc
+                this.proofsTabVisited = true
+            }
+            else if (this.selectedTab === 'details' && !this.detailsTabVisited){
+                Utils.syncEditors(this.$refs)
+                this.findingOrig.remediation = this.finding.remediation
+                this.detailsTabVisited = true
+            }
+        },
+
+        unsavedChanges: function() {
+            if (this.finding.title !== this.findingOrig.title)
+                return true
+            if ((this.finding.vulnType || this.findingOrig.vulnType) && this.finding.vulnType !== this.findingOrig.vulnType)
+                return true
+            if ((this.finding.description || this.findingOrig.description) && this.finding.description !== this.findingOrig.description)
+                return true
+            if ((this.finding.observation || this.findingOrig.observation) && this.finding.observation !== this.findingOrig.observation)
+                return true
+            if (!this.$_.isEqual(this.finding.references, this.findingOrig.references))
+                return true
+            if (!this.$_.isEqual(this.finding.customFields, this.findingOrig.customFields))
+                return true
+
+            if ((this.finding.poc || this.findingOrig.poc) && this.finding.poc !== this.findingOrig.poc)
+                return true
+            
+            if ((this.finding.scope || this.findingOrig.scope) && this.finding.scope !== this.findingOrig.scope)
+                return true
+            if ((this.finding.cvssv3 || this.findingOrig.cvssv3) && this.finding.cvssv3 !== this.findingOrig.cvssv3)
+                return true
+            if ((this.finding.remediationComplexity || this.findingOrig.remediationComplexity) && this.finding.remediationComplexity !== this.findingOrig.remediationComplexity)
+                return true
+            if ((this.finding.priority || this.findingOrig.priority) && this.finding.priority !== this.findingOrig.priority)
+                return true
+            if ((this.finding.remediation || this.findingOrig.remediation) && this.finding.remediation !== this.findingOrig.remediation)
+                return true
+
+            if (this.finding.status !== this.findingOrig.status)
+                return true
+
+            return false
         }
     }
 }

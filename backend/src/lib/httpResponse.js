@@ -28,6 +28,12 @@ function SendFile(res, filename, file){
 }
 exports.SendFile = SendFile;
 
+function SendImage(res, image){
+    res.set({"Content-Type": "image/png", "Content-Length": image.length});
+    res.status(200).send(image);
+}
+exports.SendImage = SendImage;
+
 /*
 *** Codes 4xx ***
 */
@@ -63,9 +69,11 @@ exports.Forbidden = Forbidden;
 
 function Internal(res, error){
     if (error.fn) var fn = exports[error.fn];
-    var message = 'Internal Error';
     if (typeof(fn) === 'function')
         fn(res, error.message);
+    else if (error.errmsg) {
+        res.status(500).json({"status": "error", "datas": error.errmsg});
+    }   
     else {
         res.status(500).json({"status": "error", "datas": error});
     }

@@ -2,7 +2,9 @@ var docx = require("docx")
 var xml = require("xml")
 var htmlparser = require("htmlparser2")
 
-function html2ooxml(html) {
+function html2ooxml(html, style = '') {
+    if (html === '')
+        return html
     if (!html.match(/^<.+>/))
         html = `<p>${html}</p>`
     var doc = new docx.Document();
@@ -11,6 +13,7 @@ function html2ooxml(html) {
     var cRunProperties = {}
     var cParagraphProperties = {}
     var list_state = []
+    var inCodeBlock = false
     var parser = new htmlparser.Parser(
     {
         onopentag(tag, attribs) {
@@ -33,10 +36,12 @@ function html2ooxml(html) {
                 cParagraph = new docx.Paragraph({heading: 'Heading6'})
             }
             else if (tag === "div" || tag === "p") {
-                cParagraphProperties.style = 'HTMLTextStyle'
+                if (style && typeof style === 'string')
+                    cParagraphProperties.style = style
                 cParagraph = new docx.Paragraph(cParagraphProperties)
             }
             else if (tag === "pre") {
+                inCodeBlock = true
                 cParagraph = new docx.Paragraph({style: "Code"})
             }
             else if (tag === "b" || tag === "strong") {
@@ -52,7 +57,12 @@ function html2ooxml(html) {
                 cRunProperties.strike = true
             }
             else if (tag === "br") {
-                cParagraph.addChildElement(new docx.Run({}).break())
+                if (inCodeBlock) {
+                    paragraphs.push(cParagraph)
+                    cParagraph = new docx.Paragraph({style: "Code"})
+                }
+                else
+                    cParagraph.addChildElement(new docx.Run({}).break())
             }
             else if (tag === "ul") {
                 list_state.push('bullet')
@@ -86,6 +96,8 @@ function html2ooxml(html) {
                 paragraphs.push(cParagraph)
                 cParagraph = null
                 cParagraphProperties = {}
+                if (tag === 'pre')
+                    inCodeBlock = false
             }
             else if (tag === "b" || tag === "strong") {
                 delete cRunProperties.bold

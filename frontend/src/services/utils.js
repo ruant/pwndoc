@@ -1,3 +1,5 @@
+var _ = require('lodash')
+
 export default {
   htmlEncode(html) {
     if(typeof(html) !== "string")  return "";
@@ -47,5 +49,103 @@ export default {
     .replace(/&lt;\/h6&gt;/g, '</h6>')
 
     return result
+  },
+
+  // Update all basic-editor when noSync is necessary for performance (text with images). 
+  syncEditors: function(refs) {
+    Object.keys(refs).forEach(key => {
+      if (key.startsWith('basiceditor_') && refs[key]) // ref must start with 'basiceditor_'
+        (Array.isArray(refs[key]))? refs[key].forEach(elt => elt.updateHTML()) : refs[key].updateHTML()
+      else if (refs[key] && refs[key].$refs) // check for editors in child components
+        this.syncEditors(refs[key].$refs)
+    })
+  },
+
+  // Compress images to allow more storage in database since limit in a mongo document is 16MB
+  resizeImg: function(imageB64) {
+    return new Promise((resolve, reject) => {
+      var oldSize = JSON.stringify(imageB64).length
+      var max_width = 1920
+
+      var img = new Image()
+      img.src = imageB64
+      img.onload = function() {
+        //scale the image and keep aspect ratio
+        var resize_width = (this.width > max_width) ? max_width : this.width
+        var scaleFactor =  resize_width / this.width
+        var resize_height = this.height * scaleFactor
+
+        // Create a temporary canvas to draw the downscaled image on.
+        var canvas = document.createElement("canvas")
+        canvas.width = resize_width
+        canvas.height = resize_height
+
+        //draw in canvas
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(this, 0, 0, resize_width, resize_height)
+
+        var result = canvas.toDataURL('image/jpeg')
+        var newSize = JSON.stringify(result).length
+        if (newSize >= oldSize)
+          resolve(imageB64)
+        else
+          resolve(result)
+      }
+    })
+  },
+
+  customFilter: function(rows, terms) {
+    var result = rows && rows.filter(row => {
+        for (const [key, value] of Object.entries(terms)) { // for each search term
+          var searchString = (_.get(row, key) || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          var termString = (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          if (searchString.indexOf(termString) < 0) {
+              return false
+          }
+        }
+        return true
+    })
+    return result
+  },
+
+  filterCustomFields: function(page, displaySub, customFields = [], objectFields = []) {
+    var cFields = []
+    var display = []
+
+    customFields.forEach(field => {
+      switch (page) {
+        case 'finding':
+          display = ['finding', 'vulnerability']
+          break
+        case 'vulnerability':
+          display = ['vulnerability']
+          break
+        case 'audit-general':
+          display = ['general']
+          break
+      }
+
+      if ((display.includes(field.display) && (field.displaySub === '' || field.displaySub === displaySub))) {
+        var fieldText = ''
+        for (var i=0;i<objectFields.length; i++) { // Set corresponding text value
+          var customFieldId = ""
+          if (typeof objectFields[i].customField === 'object')
+            customFieldId = objectFields[i].customField._id
+          else
+            customFieldId = objectFields[i].customField
+          if (objectFields[i].customField && customFieldId === field._id) {
+              fieldText = objectFields[i].text
+              break
+          }  
+        }
+
+        cFields.push({
+            customField: field,
+            text: fieldText
+        })
+      }
+    })
+
+    return cFields
   }
 }
